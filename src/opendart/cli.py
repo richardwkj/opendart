@@ -1,0 +1,163 @@
+"""Command-line interface for OpenDART ETL tasks."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+import click
+
+from opendart.api import DartClient
+from opendart.db import get_session, init_db
+from opendart.etl.companies import (
+    apply_delisting_updates_from_csv,
+    ingest_companies_from_csv,
+)
+from opendart.etl.financials import backfill_company, get_companies_for_backfill
+
+logger = logging.getLogger(__name__)
+
+
+def _configure_logging(level: str) -> None:
+    logging.basicConfig(
+        level=getattr(logging, level.upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+
+def _print_stats(stats: dict[str, Any], heading: str | None = None) -> None:
+    if heading:
+        click.echo(heading)
+    for key, value in stats.items():
+        click.echo(f"{key}: {value}")
+
+
+@click.group()
+@click.option(
+    "--log-level",
+    default="INFO",
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], case_sensitive=False),
+    show_default=True,
+)
+def cli(log_level: str) -> None:
+    """OpenDART ETL command group."""
+    _configure_logging(log_level)
+
+
+@cli.command("init-db")
+def init_db_command() -> None:
+    """Initialize database tables using SQLAlchemy metadata."""
+    init_db()
+    click.echo("Database initialized.")
+
+
+@cli.command("ingest-companies")
+@click.argument("csv_path", type=click.Path(exists=True, dir_okay=False))
+@click.option(
+    "--on-stock-code-reuse",
+    type=click.Choice(["reassign", "reject"], case_sensitive=False),
+    default="reject",
+    show_default=True,
+)
+@click.option(
+    "--default-priority/--no-default-priority",
+    default=False,
+    show_default=True,
+    help="Fallback priority flag when CSV does not provide is_priority.",
+)
+def ingest_companies_command(
+    csv_path: str,
+    on_stock_code_reuse: str,
+    default_priority: bool,
+) -> None:
+    """Ingest new companies from a CSV file."""
+    with get_session() as session:
+        stats = ingest_companies_from_csv(
+            session,
+            csv_path,
+            on_stock_code_reuse=on_stock_code_reuse.lower(),
+            default_is_priority=default_priority,
+        )
+
+    _print_stats(stats, heading="Ingestion summary")
+
+
+@cli.command("update-delistings")
+@click.argument("csv_path", type=click.Path(exists=True, dir_okay=False))
+def update_delistings_command(csv_path: str) -> None:
+    """Apply delisting updates from a CSV file."""
+    with get_session() as session:
+        stats = apply_delisting_updates_from_csv(session, csv_path)
+
+    _print_stats(stats, heading="Delisting update summary")
+
+
+@cli.command("backfill")
+@click.option("--corp-code", help="Optional corp_code to backfill a single company.")
+@click.option("--start-year", default=2015, show_default=True, type=int)
+@click.option(
+    "--priority-only",
+    is_flag=True,
+    help="Only backfill companies marked as priority.",
+)
+@click.option(
+    "--on-error-013",
+    type=click.Choice(["skip", "stop"], case_sensitive=False),
+    default="skip",
+    show_default=True,
+)
+def backfill_command(
+    corp_code: str | None,
+    start_year: int,
+    priority_only: bool,
+    on_error_013: str,
+) -> None:
+    """Backfill financial fundamentals."""
+    client = DartClient()
+
+    if corp_code:
+        with get_session() as session:
+            stats = backfill_company(
+                client,
+                session,
+                corp_code,
+                start_year=start_year,
+                on_error_013=on_error_013.lower(),
+            )
+        _print_stats(stats, heading=f"Backfill summary for {corp_code}")
+        return
+
+    aggregate = {
+        "total_records": 0,
+        "successful": 0,
+        "skipped": 0,
+        "errors": 0,
+        "rate_limited": False,
+    }
+
+    with get_session() as session:
+        for company in get_companies_for_backfill(session, priority_only=priority_only):
+            click.echo(f"Backfilling {company.corp_code}...")
+            stats = backfill_company(
+                client,
+                session,
+                company.corp_code,
+                start_year=start_year,
+                on_error_013=on_error_013.lower(),
+            )
+
+            aggregate["total_records"] += stats.get("total_records", 0)
+            aggregate["successful"] += stats.get("successful", 0)
+            aggregate["skipped"] += stats.get("skipped", 0)
+            aggregate["errors"] += stats.get("errors", 0)
+
+            if stats.get("rate_limited"):
+                aggregate["rate_limited"] = True
+                click.echo("Rate limit hit; stopping backfill.")
+                break
+
+    _print_stats(aggregate, heading="Backfill summary")
+
+
+if __name__ == "__main__":
+    cli()
