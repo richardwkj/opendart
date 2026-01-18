@@ -62,8 +62,8 @@ class FinancialFundamental(Base):
     year: Mapped[int] = mapped_column(Integer)
     report_code: Mapped[str] = mapped_column(String(5))
     fs_div: Mapped[str] = mapped_column(String(3))  # CFS or OFS
-    account_id: Mapped[str] = mapped_column(String(20))
-    account_name: Mapped[str] = mapped_column(String(100))
+    account_id: Mapped[str] = mapped_column(String(200))
+    account_name: Mapped[str] = mapped_column(String(255))
     amount: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
     fetched_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

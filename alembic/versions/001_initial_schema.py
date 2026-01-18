@@ -52,8 +52,8 @@ def upgrade() -> None:
         sa.Column("year", sa.Integer(), nullable=False),
         sa.Column("report_code", sa.String(5), nullable=False),
         sa.Column("fs_div", sa.String(3), nullable=False),  # CFS or OFS
-        sa.Column("account_id", sa.String(20), nullable=False),
-        sa.Column("account_name", sa.String(100), nullable=False),
+        sa.Column("account_id", sa.String(200), nullable=False),
+        sa.Column("account_name", sa.String(255), nullable=False),
         sa.Column("amount", sa.BigInteger(), nullable=True),
         sa.Column("version", sa.Integer(), default=1, nullable=False),
         sa.Column("fetched_at", sa.DateTime(), nullable=False),

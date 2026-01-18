@@ -104,3 +104,28 @@ Optional (for email notifications):
 ```bash
 uv run pytest tests/
 ```
+
+## Common Pitfalls
+
+### OpenDartReader Import
+`OpenDartReader` is a class, not a module. Use directly:
+```python
+import OpenDartReader
+dart = OpenDartReader(api_key)  # Correct
+# NOT: OpenDartReader.OpenDartReader(api_key)
+```
+
+### DART API Field Sizes
+DART returns longer values than expected. Key field sizes:
+- `account_id`: up to 145 chars (e.g., `ifrs-full_NoncontrollingInterestsInSubsidiaries`)
+- `account_name`: Korean names, allow 255 chars
+
+### PostgreSQL Socket Connection
+When using peer authentication (socket), the OS user must match the DB role:
+```
+DATABASE_URL=postgresql:///opendart_updater  # Uses current OS user
+```
+If connecting as different user, create a matching PostgreSQL role:
+```sql
+CREATE ROLE your_os_user WITH LOGIN SUPERUSER;
+```

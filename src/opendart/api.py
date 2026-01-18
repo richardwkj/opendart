@@ -49,7 +49,7 @@ class DartClient:
         self.request_delay = settings.request_delay
         self.rate_limit_pause = settings.rate_limit_pause
 
-        self._dart = OpenDartReader.OpenDartReader(self.api_key)
+        self._dart = OpenDartReader(self.api_key)
         self._last_request_time: float = 0
 
     def _wait_for_rate_limit(self) -> None:

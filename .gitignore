@@ -207,10 +207,8 @@ marimo/_lsp/
 __marimo__/
 
 
-# test
-. tests
-. docs/
-. claude
-
-
-. agents.md 
+# Project-specific ignores
+docs/
+**/CLAUDE.md
+**/claude.md
+**/agents.md
