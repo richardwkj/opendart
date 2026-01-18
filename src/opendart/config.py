@@ -58,3 +58,20 @@ class Settings:
 def get_settings() -> Settings:
     """Get application settings (cached)."""
     return Settings.from_env()
+
+
+def get_config() -> dict[str, str | None]:
+    """Get all config values as a dict (for optional settings like SMTP).
+
+    Returns environment variables directly, useful for optional config
+    that may not be set.
+    """
+    return {
+        "DART_API_KEY": os.getenv("DART_API_KEY"),
+        "DATABASE_URL": os.getenv("DATABASE_URL"),
+        "SMTP_HOST": os.getenv("SMTP_HOST"),
+        "SMTP_PORT": os.getenv("SMTP_PORT", "587"),
+        "SMTP_USER": os.getenv("SMTP_USER"),
+        "SMTP_PASSWORD": os.getenv("SMTP_PASSWORD"),
+        "NOTIFICATION_EMAIL": os.getenv("NOTIFICATION_EMAIL"),
+    }

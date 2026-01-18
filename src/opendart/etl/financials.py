@@ -205,7 +205,10 @@ def backfill_company(
         session: Database session
         corp_code: Company code
         start_year: Year to start backfill from
-        on_error_013: How to handle "no data" errors
+        on_error_013: How to handle "no data" errors:
+            - "skip": Skip and continue to next period
+            - "mark": Mark company's earliest_data_year and skip older years
+            - "stop": Stop processing this company
 
     Returns:
         Dictionary with stats (total_records, errors, etc.)
@@ -218,8 +221,17 @@ def backfill_company(
         "rate_limited": False,
     }
 
-    years = get_years_to_backfill(start_year)
+    # Check if company has earliest_data_year set - skip years before it
+    company = session.get(Company, corp_code)
+    effective_start_year = start_year
+    if company and company.earliest_data_year:
+        effective_start_year = max(start_year, company.earliest_data_year)
+        if effective_start_year > start_year:
+            logger.info(f"Skipping years before {effective_start_year} for {corp_code} (earliest_data_year set)")
+
+    years = get_years_to_backfill(effective_start_year)
     report_codes = get_report_codes()
+    first_successful_year = None
 
     for year in years:
         for report_code in report_codes:
@@ -245,8 +257,15 @@ def backfill_company(
 
             if status == "success":
                 stats["successful"] += 1
+                if first_successful_year is None:
+                    first_successful_year = year
             elif status in ("skipped", "no_data", "no_records"):
                 stats["skipped"] += 1
+                # Handle on_error_013="mark" - set earliest_data_year when no data found
+                if on_error_013 == "mark" and first_successful_year is None:
+                    # No data for this year, and we haven't found data yet
+                    # Continue to next year to find when data starts
+                    pass
             elif status == "rate_limited":
                 stats["rate_limited"] = True
                 # Record progress and stop
@@ -259,6 +278,13 @@ def backfill_company(
 
             # Record successful progress
             _record_progress(session, corp_code, year, report_code, "completed")
+
+    # After backfill completes, mark earliest_data_year if using "mark" mode
+    if on_error_013 == "mark" and first_successful_year is not None:
+        if company and (company.earliest_data_year is None or company.earliest_data_year != first_successful_year):
+            company.earliest_data_year = first_successful_year
+            session.commit()
+            logger.info(f"Set earliest_data_year={first_successful_year} for {corp_code}")
 
     return stats
 

@@ -1,34 +1,91 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
-- `src/opendart/` holds the core package: `api.py` (DART client), `config.py` (env settings), `db.py` (SQLAlchemy sessions), and `models.py` (ORM models).
-- `src/opendart/etl/` contains the ETL flows for financials and events (`financials.py`, `events.py`).
-- `alembic/` and `alembic.ini` manage database migrations.
-- `tests/` is reserved for pytest tests (currently minimal).
-- `spec.md` captures the product/system specification and domain rules.
+**Generated:** 2026-01-18 | **Commit:** 114a9c5 | **Branch:** main
 
-## Build, Test, and Development Commands
-- `uv sync` (if you use uv) or `pip install -e .` to install dependencies from `pyproject.toml`.
-- `python -m pytest` to run the test suite.
-- `python -m pytest --cov=opendart` for optional coverage reporting (requires `pytest-cov`).
-- `alembic revision --autogenerate -m "describe change"` to generate a migration (needs `DATABASE_URL`).
-- `alembic upgrade head` to apply migrations to the target database.
+## Overview
+Korean Financial Data ETL - pulls company financials and events from Open DART API into PostgreSQL. Python 3.10+, SQLAlchemy 2.0, Click CLI.
 
-## Coding Style & Naming Conventions
-- Python 3.10+, 4-space indentation, and type hints are standard throughout the codebase.
-- Use `snake_case` for functions/modules, `CamelCase` for classes, and `UPPER_SNAKE` for constants.
-- Preserve domain naming (`corp_code`, `stock_code`, `report_code`, `fs_div`) to match DART semantics.
+## Structure
+```
+opendart/
+├── src/opendart/        # Core package (see src/opendart/AGENTS.md)
+│   ├── api.py           # DART client w/ rate limiting
+│   ├── cli.py           # Click commands
+│   ├── models.py        # 4 tables: companies, financials, events, progress
+│   └── etl/             # Ingestion flows
+├── alembic/versions/    # 001_initial_schema, 002_latest_financials_view
+├── tests/               # pytest (minimal coverage)
+└── spec.md              # Product specification
+```
 
-## Testing Guidelines
-- Use pytest; add tests under `tests/` with filenames like `test_*.py`.
-- Run `python -m pytest` every time a script is completed before marking work done.
-- Cover ETL transforms (e.g., parsing, normalization) and DB upserts where practical.
+## Where to Look
 
-## Commit & Pull Request Guidelines
-- Git history is minimal (only an initial commit), so no established convention yet; keep messages short and imperative.
-- PRs should include a brief summary, testing notes, and any migration or config changes.
-- For data-model changes, include the migration command used and any backfill considerations.
+| Task | Location | Notes |
+|------|----------|-------|
+| Add CLI command | `src/opendart/cli.py` | Use `@cli.command()` decorator |
+| New ETL flow | `src/opendart/etl/` | Follow pattern in `financials.py` |
+| Schema change | `src/opendart/models.py` → `alembic revision --autogenerate` | Then `alembic upgrade head` |
+| API wrapper | `src/opendart/api.py` | Add method to `DartClient` class |
+| Rate limiting | `src/opendart/config.py` | `request_delay`, `rate_limit_pause` |
 
-## Configuration & Secrets
-- Create a `.env` file with `DART_API_KEY` and `DATABASE_URL` (never commit secrets).
-- Rate-limiting and backfill defaults live in `src/opendart/config.py`; keep changes explicit.
+## Key Domain Concepts
+
+| Term | Meaning |
+|------|---------|
+| `corp_code` | DART 8-digit company ID (PK, stable) |
+| `stock_code` | KRX 6-digit ticker (can be reused after delisting) |
+| `report_code` | 11013=Q1, 11012=Q2, 11014=Q3, 11011=Annual |
+| `fs_div` | CFS (consolidated) or OFS (standalone) |
+| `earliest_data_year` | Skip years before this (optimization) |
+
+## Conventions
+
+- Domain naming preserved: `corp_code`, `stock_code`, `report_code`, `fs_div` - match DART semantics
+- PostgreSQL upserts via `ON CONFLICT DO NOTHING` or `ON CONFLICT DO UPDATE`
+- All ETL functions return stats dict: `{"total_records": N, "errors": N, ...}`
+- Session management: `with get_session() as session:` context manager
+
+## Anti-Patterns
+
+- **NEVER** use `stock_code` as FK - it gets reassigned after delisting
+- **NEVER** commit secrets in `.env` 
+- **NEVER** skip rate limiting - daily limit is 20,000 requests
+- **NEVER** suppress type hints - project uses type annotations throughout
+
+## Commands
+
+```bash
+# Development
+uv sync                         # Install deps
+uv run pytest tests/            # Run tests
+
+# Database
+uv run alembic upgrade head     # Apply migrations
+uv run opendart init-db         # Create tables (dev only)
+
+# ETL Operations
+uv run opendart ingest-companies <csv>
+uv run opendart backfill --priority-only --on-error-013=mark
+uv run opendart sync-events --days=31
+uv run opendart run-scheduler   # Monthly automation
+
+# Migrations
+uv run alembic revision --autogenerate -m "description"
+```
+
+## API Constraints
+
+| Constraint | Value |
+|------------|-------|
+| Daily limit | 20,000 requests |
+| Throttle delay | 0.15s between requests |
+| Data availability | 2015 Q1 onwards |
+| Error 013 | No data for company/period |
+| Error 020 | Rate limit exceeded |
+
+## Notes
+
+- `backfill_progress` table enables resumable backfill after rate limits
+- `earliest_data_year` on Company prevents wasteful queries for companies with no early data
+- `--on-error-013=mark` mode auto-discovers when company data starts
+- Monthly scheduler runs 1st of month at 02:00 KST

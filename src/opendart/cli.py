@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import click
@@ -13,7 +14,9 @@ from opendart.etl.companies import (
     apply_delisting_updates_from_csv,
     ingest_companies_from_csv,
 )
+from opendart.etl.events import sync_recent_events
 from opendart.etl.financials import backfill_company, get_companies_for_backfill
+from opendart.scheduler import monthly_sync_job, run_scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -102,15 +105,24 @@ def update_delistings_command(csv_path: str) -> None:
 )
 @click.option(
     "--on-error-013",
-    type=click.Choice(["skip", "stop"], case_sensitive=False),
+    type=click.Choice(["skip", "mark", "stop"], case_sensitive=False),
     default="skip",
     show_default=True,
+    help="Action on no-data errors: skip, mark (set earliest_data_year), or stop.",
+)
+@click.option(
+    "--on-rate-limit",
+    type=click.Choice(["pause", "exit", "prompt"], case_sensitive=False),
+    default="prompt",
+    show_default=True,
+    help="Action on rate limit: pause (wait 1hr), exit (stop gracefully), prompt (ask user).",
 )
 def backfill_command(
     corp_code: str | None,
     start_year: int,
     priority_only: bool,
     on_error_013: str,
+    on_rate_limit: str,
 ) -> None:
     """Backfill financial fundamentals."""
     client = DartClient()
@@ -136,7 +148,11 @@ def backfill_command(
     }
 
     with get_session() as session:
-        for company in get_companies_for_backfill(session, priority_only=priority_only):
+        companies = list(get_companies_for_backfill(session, priority_only=priority_only))
+        company_idx = 0
+
+        while company_idx < len(companies):
+            company = companies[company_idx]
             click.echo(f"Backfilling {company.corp_code}...")
             stats = backfill_company(
                 client,
@@ -153,10 +169,82 @@ def backfill_command(
 
             if stats.get("rate_limited"):
                 aggregate["rate_limited"] = True
-                click.echo("Rate limit hit; stopping backfill.")
-                break
+                action = on_rate_limit.lower()
+
+                if action == "prompt":
+                    click.echo("\nRate limit hit (Error 020).")
+                    action = click.prompt(
+                        "Choose action",
+                        type=click.Choice(["pause", "exit"], case_sensitive=False),
+                        default="exit",
+                    )
+
+                if action == "pause":
+                    click.echo("Pausing for 1 hour before resuming...")
+                    logger.info("Rate limit hit; pausing for 1 hour")
+                    time.sleep(3600)  # 1 hour
+                    click.echo("Resuming backfill...")
+                    # Don't increment company_idx; retry the same company
+                    continue
+                else:
+                    click.echo("Exiting gracefully. Progress has been saved.")
+                    logger.info("Rate limit hit; exiting. Progress saved to backfill_progress table.")
+                    break
+
+            company_idx += 1
 
     _print_stats(aggregate, heading="Backfill summary")
+
+
+@cli.command("sync-events")
+@click.option(
+    "--days",
+    default=31,
+    show_default=True,
+    type=int,
+    help="Number of days to look back for events.",
+)
+def sync_events_command(days: int) -> None:
+    """Sync key events from the past N days."""
+    client = DartClient()
+
+    with get_session() as session:
+        stats = sync_recent_events(client, session, days=days)
+
+    _print_stats(stats, heading="Events sync summary")
+
+
+@cli.command("run-scheduler")
+def run_scheduler_command() -> None:
+    """Start the APScheduler for automated monthly syncs.
+
+    Runs the scheduler in blocking mode. The monthly sync job executes
+    on the 1st of each month at 02:00 KST.
+    """
+    click.echo("Starting scheduler (monthly sync on 1st at 02:00 KST)...")
+    click.echo("Press Ctrl+C to stop.")
+    run_scheduler()
+
+
+@cli.command("run-sync")
+@click.option(
+    "--on-error-013",
+    type=click.Choice(["skip", "mark", "stop"], case_sensitive=False),
+    default="skip",
+    show_default=True,
+)
+@click.option(
+    "--days",
+    default=31,
+    show_default=True,
+    type=int,
+    help="Days to look back for events.",
+)
+def run_sync_command(on_error_013: str, days: int) -> None:
+    """Run the monthly sync job immediately (manual trigger)."""
+    click.echo("Running monthly sync job...")
+    stats = monthly_sync_job(on_error_013=on_error_013.lower(), days_lookback=days)
+    _print_stats(stats, heading="Monthly sync summary")
 
 
 if __name__ == "__main__":

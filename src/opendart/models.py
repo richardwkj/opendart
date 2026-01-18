@@ -36,6 +36,9 @@ class Company(Base):
     listing_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     delisted_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     last_updated: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    earliest_data_year: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, comment="Earliest year with available DART data (to avoid wasteful queries)"
+    )
 
     # Relationships
     financials: Mapped[list["FinancialFundamental"]] = relationship(
