@@ -208,9 +208,9 @@ __marimo__/
 
 
 # test
-.tests
-.docs
-.claude
+. tests
+. docs/
+. claude
 
 
 . agents.md 
