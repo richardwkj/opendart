@@ -105,6 +105,79 @@ Optional (for email notifications):
 uv run pytest tests/
 ```
 
+## Web Dashboard (Next.js)
+
+### Overview
+A Next.js web application deployed on Vercel to visualize the collected DART financial data. Located in `web/` directory.
+
+### Tech Stack
+- Next.js 14+ (App Router)
+- TypeScript
+- Tailwind CSS for styling
+- Prisma ORM (connects to existing PostgreSQL)
+- shadcn/ui components
+
+### Structure
+```
+web/
+├── app/
+│   ├── layout.tsx          # Root layout with providers
+│   ├── page.tsx            # Home page - company search
+│   ├── companies/
+│   │   └── [corpCode]/
+│   │       └── page.tsx    # Company detail with financials
+│   └── api/
+│       ├── companies/
+│       │   └── route.ts    # GET /api/companies - list/search
+│       └── financials/
+│           └── [corpCode]/
+│               └── route.ts # GET /api/financials/:corpCode
+├── components/
+│   ├── company-search.tsx  # Search input with autocomplete
+│   ├── company-table.tsx   # Paginated company list
+│   └── financial-table.tsx # Financial statement display
+├── lib/
+│   └── prisma.ts           # Prisma client singleton
+└── prisma/
+    └── schema.prisma       # Prisma schema (introspected from existing DB)
+```
+
+### Development Commands
+```bash
+cd web
+npm install
+npm run dev           # Start dev server on localhost:3000
+npx prisma db pull    # Introspect existing database schema
+npx prisma generate   # Generate Prisma client
+```
+
+### Deployment
+Deployed on Vercel with the following environment variables:
+- `DATABASE_URL` - PostgreSQL connection string (same as ETL uses)
+
+### Key Features
+1. **Company Search**: Full-text search by company name or stock code
+2. **Company List**: Paginated table with sorting
+3. **Financial Statements**: View financial line items by year/quarter
+   - Filter by fs_div (CFS/OFS)
+   - Filter by report_code (Q1/Q2/Q3/Annual)
+
+### API Routes
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/companies` | GET | List companies with search, pagination |
+| `/api/companies?search=삼성` | GET | Search by name |
+| `/api/financials/[corpCode]` | GET | Get financials for a company |
+| `/api/financials/[corpCode]?year=2024&report_code=11011` | GET | Filter by year/quarter |
+
+### Database Schema Notes for Frontend
+The Prisma schema will map to existing tables:
+- `companies` → Company model (PK: `corp_code`)
+- `financial_fundamentals` → FinancialFundamental model (FK: `corp_code`)
+- `key_events` → KeyEvent model (FK: `corp_code`)
+
+**Important**: Use `corp_code` (not `stock_code`) for all relationships - stock codes can be reused after delisting.
+
 ## Common Pitfalls
 
 ### OpenDartReader Import
