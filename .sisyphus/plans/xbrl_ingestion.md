@@ -49,10 +49,10 @@ Enable the system to ingest, parse, and store unstructured financial notes from 
 - `src/opendart/cli.py`: `ingest-xbrl` command
 
 ### Definition of Done
-- [ ] `uv run opendart ingest-xbrl --corp-code 00126380 --year 2023` runs successfully
-- [ ] `financial_notes` table contains text block data for the target company
-- [ ] No rate limit errors (013/020 handled correctly)
-- [ ] Temp files are cleaned up after processing
+- [x] `uv run opendart ingest-xbrl --corp-code 00126380 --year 2023` runs successfully
+- [x] `financial_notes` table contains text block data for the target company
+- [x] No rate limit errors (013/020 handled correctly)
+- [x] Temp files are cleaned up after processing
 
 ---
 
@@ -99,7 +99,7 @@ Wave 3 (Integration):
 
 ## TODOs
 
-- [ ] 1. Add Dependencies (`arelle-release`)
+- [x] 1. Add Dependencies (`arelle-release`)
 
   **What to do**:
   - Add `arelle-release` and `lxml` to `pyproject.toml` (or `requirements.txt` if used).
@@ -113,10 +113,10 @@ Wave 3 (Integration):
   - `pyproject.toml`: Dependency file
 
   **Acceptance Criteria**:
-  - [ ] `import arelle` works in python shell
-  - [ ] `uv sync` completes without conflict
+  - [x] `import arelle` works in python shell
+  - [x] `uv sync` completes without conflict
 
-- [ ] 2. Create Schema (`financial_notes` table)
+- [x] 2. Create Schema (`financial_notes` table)
 
   **What to do**:
   - Create new migration: `uv run alembic revision -m "create_financial_notes"`
@@ -142,10 +142,10 @@ Wave 3 (Integration):
   - `src/opendart/models.py`: Follow existing `FinancialFundamental` pattern
 
   **Acceptance Criteria**:
-  - [ ] `uv run alembic upgrade head` succeeds
-  - [ ] Table exists in DB
+  - [x] `uv run alembic upgrade head` succeeds
+  - [x] Table exists in DB
 
-- [ ] 3. Update API Client (`download_xbrl`)
+- [x] 3. Update API Client (`download_xbrl`)
 
   **What to do**:
   - Add `download_xbrl(self, rcept_no: str, save_path: str)` to `DartClient` in `src/opendart/api.py`.
@@ -161,9 +161,9 @@ Wave 3 (Integration):
   - `src/opendart/api.py:finstate_all`: Copy error handling pattern
 
   **Acceptance Criteria**:
-  - [ ] Test that calls `download_xbrl` with mock succeeds
+  - [x] Test that calls `download_xbrl` with mock succeeds
 
-- [ ] 4. Implement XBRL ETL (`src/opendart/etl/xbrl.py`)
+- [x] 4. Implement XBRL ETL (`src/opendart/etl/xbrl.py`)
 
   **What to do**:
   - Create `ingest_xbrl(corp_code, year, report_code)` function.
@@ -190,10 +190,10 @@ Wave 3 (Integration):
   - Arelle docs: `fact.concept.isTextBlock` (or check type name)
 
   **Acceptance Criteria**:
-  - [ ] TDD: Test with sample XBRL file (mocked or small fixture)
-  - [ ] Extract at least one text block from a real filing
+  - [x] TDD: Test with sample XBRL file (mocked or small fixture)
+  - [x] Extract at least one text block from a real filing
 
-- [ ] 5. Add CLI Command (`ingest-xbrl`)
+- [x] 5. Add CLI Command (`ingest-xbrl`)
 
   **What to do**:
   - Add `ingest-xbrl` command to `src/opendart/cli.py`.
@@ -209,7 +209,7 @@ Wave 3 (Integration):
   - `src/opendart/cli.py:backfill`: Follow command pattern
 
   **Acceptance Criteria**:
-  - [ ] `uv run opendart ingest-xbrl --help` works
+  - [x] `uv run opendart ingest-xbrl --help` works
 
 ---
 
@@ -225,7 +225,7 @@ uv run opendart shell "SELECT title, length(content) FROM financial_notes WHERE 
 ```
 
 ### Final Checklist
-- [ ] `financial_notes` table created
-- [ ] `arelle` installed
-- [ ] Text blocks successfully extracted
-- [ ] No residual temp files
+- [x] `financial_notes` table created
+- [x] `arelle` installed
+- [x] Text blocks successfully extracted
+- [x] No residual temp files

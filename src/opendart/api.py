@@ -226,6 +226,43 @@ class DartClient:
             logger.error(f"Unexpected error in {context}: {e}")
             raise
 
+    def download_xbrl(self, rcept_no: str, save_path: str) -> str:
+        """Download XBRL financial statement file.
+
+        Args:
+            rcept_no: DART receipt number (14 digits)
+            save_path: File path to save the XBRL XML file
+
+        Returns:
+            Path to the downloaded file
+
+        Raises:
+            DartError: If API returns an error
+        """
+        self._wait_for_rate_limit()
+        context = f"download_xbrl({rcept_no})"
+
+        try:
+            logger.debug(f"Calling {context}")
+            result = self._dart.finstate_xml(rcept_no, save_as=save_path)
+
+            if result is None:
+                logger.warning(f"No data returned for {context}")
+                raise DartError(
+                    code=DartErrorCode.NO_DATA.value,
+                    message=f"No XBRL data available for {rcept_no}",
+                )
+
+            self._check_error(result, context)
+            logger.debug(f"Successfully downloaded XBRL to {save_path}")
+            return save_path
+
+        except DartError:
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in {context}: {e}")
+            raise
+
 
 def get_dart_client() -> DartClient:
     """Get a configured DART client instance."""

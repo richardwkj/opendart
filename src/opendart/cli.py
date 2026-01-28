@@ -17,6 +17,7 @@ from opendart.etl.companies import (
 )
 from opendart.etl.events import sync_recent_events
 from opendart.etl.financials import backfill_company, get_companies_for_backfill
+from opendart.etl.xbrl import ingest_xbrl
 from opendart.scheduler import monthly_sync_job, run_scheduler
 
 logger = logging.getLogger(__name__)
@@ -325,6 +326,30 @@ def sync_events_command(days: int) -> None:
         stats = sync_recent_events(client, session, days=days)
 
     _print_stats(stats, heading="Events sync summary")
+
+
+@cli.command("ingest-xbrl")
+@click.option("--corp-code", required=True, type=str, help="DART corp_code (8-digit identifier).")
+@click.option("--year", required=True, type=int, help="Year to ingest XBRL data for.")
+@click.option(
+    "--report-code",
+    default="11011",
+    show_default=True,
+    type=str,
+    help="Report code (11011=Annual, 11013=Q1, 11012=Q2, 11014=Q3).",
+)
+def ingest_xbrl_command(corp_code: str, year: int, report_code: str) -> None:
+    """Ingest XBRL text blocks for a company/report period.
+    
+    Fetches XBRL disclosure documents from DART API and stores text blocks
+    in the database for the specified company, year, and report period.
+    
+    Example:
+        opendart ingest-xbrl --corp-code 00126380 --year 2024
+        opendart ingest-xbrl --corp-code 00126380 --year 2024 --report-code 11013
+    """
+    stats = ingest_xbrl(corp_code, year, report_code)
+    _print_stats(stats, heading="XBRL ingestion summary")
 
 
 @cli.command("run-scheduler")
