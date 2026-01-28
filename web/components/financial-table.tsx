@@ -44,18 +44,18 @@ export function FinancialTable({ corpCode }: FinancialTableProps) {
   const [financials, setFinancials] = useState<Financial[]>([]);
   const [availableYears, setAvailableYears] = useState<number[]>([]);
   const [availableReportCodes, setAvailableReportCodes] = useState<string[]>([]);
-  const [selectedYear, setSelectedYear] = useState<string>("");
-  const [selectedReportCode, setSelectedReportCode] = useState<string>("");
-  const [selectedFsDiv, setSelectedFsDiv] = useState<string>("");
+  const [selectedYear, setSelectedYear] = useState<string | undefined>(undefined);
+  const [selectedReportCode, setSelectedReportCode] = useState<string | undefined>(undefined);
+  const [selectedFsDiv, setSelectedFsDiv] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchFinancials = useCallback(async () => {
     setIsLoading(true);
     try {
       const params = new URLSearchParams();
-      if (selectedYear) params.set("year", selectedYear);
-      if (selectedReportCode) params.set("report_code", selectedReportCode);
-      if (selectedFsDiv) params.set("fs_div", selectedFsDiv);
+      if (selectedYear && selectedYear !== "all") params.set("year", selectedYear);
+      if (selectedReportCode && selectedReportCode !== "all") params.set("report_code", selectedReportCode);
+      if (selectedFsDiv && selectedFsDiv !== "all") params.set("fs_div", selectedFsDiv);
 
       const res = await fetch(`/api/financials/${corpCode}?${params}`);
       const data = await res.json();
@@ -67,6 +67,12 @@ export function FinancialTable({ corpCode }: FinancialTableProps) {
 
       if (!selectedYear && data.availableYears?.length > 0) {
         setSelectedYear(data.availableYears[0].toString());
+      }
+      if (!selectedReportCode) {
+        setSelectedReportCode("all");
+      }
+      if (!selectedFsDiv) {
+        setSelectedFsDiv("all");
       }
     } catch {
       setFinancials([]);
@@ -80,7 +86,7 @@ export function FinancialTable({ corpCode }: FinancialTableProps) {
   }, [fetchFinancials]);
 
   const filteredFinancials = financials.filter((f) => {
-    if (selectedFsDiv && f.fs_div !== selectedFsDiv) return false;
+    if (selectedFsDiv && selectedFsDiv !== "all" && f.fs_div !== selectedFsDiv) return false;
     return true;
   });
 
@@ -133,10 +139,10 @@ export function FinancialTable({ corpCode }: FinancialTableProps) {
             <SelectValue placeholder="Period" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Periods</SelectItem>
+            <SelectItem value="all">All Periods</SelectItem>
             {availableReportCodes.map((code) => (
               <SelectItem key={code} value={code}>
-                {selectedYear
+                {selectedYear && selectedYear !== "all"
                   ? formatReportPeriod(parseInt(selectedYear), code)
                   : code}
               </SelectItem>
@@ -149,7 +155,7 @@ export function FinancialTable({ corpCode }: FinancialTableProps) {
             <SelectValue placeholder="Statement Type" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Types</SelectItem>
+            <SelectItem value="all">All Types</SelectItem>
             {uniqueFsDivs.map((div) => (
               <SelectItem key={div} value={div}>
                 {FS_DIV_LABELS[div] || div}

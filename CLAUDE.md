@@ -202,3 +202,39 @@ If connecting as different user, create a matching PostgreSQL role:
 ```sql
 CREATE ROLE your_os_user WITH LOGIN SUPERUSER;
 ```
+
+### Vercel DATABASE_URL Format
+When setting `DATABASE_URL` in Vercel environment variables, ensure:
+1. URL starts with `postgresql://` or `postgres://` protocol
+2. Includes all required parameters for cloud databases
+
+**Correct format for Neon:**
+```
+postgresql://user:password@host/dbname?sslmode=require
+```
+
+**Common error:**
+```
+Error validating datasource `db`: the URL must start with the protocol `postgresql://`
+```
+This means the DATABASE_URL is malformed or missing the protocol prefix.
+
+### Radix UI Select Empty Values
+Radix UI Select component does NOT support empty string `""` as a value. This causes client-side hydration errors.
+
+**Wrong:**
+```tsx
+const [value, setValue] = useState("");  // Empty string initial
+<SelectItem value="">All</SelectItem>    // Empty string value
+```
+
+**Correct:**
+```tsx
+const [value, setValue] = useState<string | undefined>(undefined);  // Use undefined
+<SelectItem value="all">All</SelectItem>  // Use "all" sentinel value
+
+// Then check for sentinel in logic:
+if (value && value !== "all") {
+  // Apply filter
+}
+```

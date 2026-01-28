@@ -1,6 +1,3 @@
-// Prisma schema for OpenDART web dashboard
-// Manually created to match existing PostgreSQL tables
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,17 +8,16 @@ datasource db {
 }
 
 model companies {
-  corp_code          String    @id @db.VarChar(8)
-  stock_code         String?   @unique @db.VarChar(6)
-  corp_name          String    @db.VarChar(255)
-  is_priority        Boolean   @default(false)
-  listing_date       DateTime? @db.Date
-  delisted_date      DateTime? @db.Date
-  last_updated       DateTime?
+  corp_code          String                   @id @db.VarChar(8)
+  stock_code         String?                  @unique @db.VarChar(6)
+  corp_name          String                   @db.VarChar(255)
+  is_priority        Boolean
+  listing_date       DateTime?                @db.Date
+  delisted_date      DateTime?                @db.Date
+  last_updated       DateTime?                @db.Timestamp(6)
   earliest_data_year Int?
-
-  financials financial_fundamentals[]
-  events     key_events[]
+  financials         financial_fundamentals[]
+  events             key_events[]
 }
 
 model financial_fundamentals {
@@ -33,35 +29,37 @@ model financial_fundamentals {
   account_id   String    @db.VarChar(200)
   account_name String    @db.VarChar(255)
   amount       BigInt?
-  version      Int       @default(1)
-  fetched_at   DateTime  @default(now())
+  version      Int
+  fetched_at   DateTime  @db.Timestamp(6)
+  company      companies @relation(fields: [corp_code], references: [corp_code], onDelete: NoAction, onUpdate: NoAction)
 
-  company companies @relation(fields: [corp_code], references: [corp_code])
-
-  @@unique([corp_code, year, report_code, fs_div, account_id, version], name: "unique_financial_entry")
-  @@index([corp_code])
+  @@unique([corp_code, year, report_code, fs_div, account_id, version], name: "unique_financial_entry", map: "unique_financial_entry")
+  @@index([corp_code], map: "ix_financial_fundamentals_corp_code")
 }
 
 model key_events {
-  rcept_no   String   @id @db.VarChar(14)
-  corp_code  String   @db.VarChar(8)
-  report_nm  String   @db.VarChar(255)
-  event_date DateTime @db.Date
+  rcept_no   String    @id @db.VarChar(14)
+  corp_code  String    @db.VarChar(8)
+  report_nm  String    @db.VarChar(255)
+  event_date DateTime  @db.Date
+  company    companies @relation(fields: [corp_code], references: [corp_code], onDelete: NoAction, onUpdate: NoAction)
 
-  company companies @relation(fields: [corp_code], references: [corp_code])
-
-  @@index([corp_code])
+  @@index([corp_code], map: "ix_key_events_corp_code")
 }
 
 model backfill_progress {
-  id            Int       @id @default(autoincrement())
-  corp_code     String    @db.VarChar(8)
+  id            Int      @id @default(autoincrement())
+  corp_code     String   @db.VarChar(8)
   year          Int
-  report_code   String    @db.VarChar(5)
-  status        String    @db.VarChar(20)
-  error_message String?   @db.VarChar(500)
-  processed_at  DateTime  @default(now())
+  report_code   String   @db.VarChar(5)
+  status        String   @db.VarChar(20)
+  error_message String?  @db.VarChar(500)
+  processed_at  DateTime @db.Timestamp(6)
 
-  @@unique([corp_code, year, report_code], name: "unique_backfill_progress")
-  @@index([corp_code])
+  @@unique([corp_code, year, report_code], name: "unique_backfill_progress", map: "unique_backfill_progress")
+  @@index([corp_code], map: "ix_backfill_progress_corp_code")
+}
+
+model alembic_version {
+  version_num String @id(map: "alembic_version_pkc") @db.VarChar(32)
 }
