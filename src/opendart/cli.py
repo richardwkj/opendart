@@ -13,6 +13,7 @@ from opendart.db import get_session, init_db
 from opendart.etl.companies import (
     apply_delisting_updates_from_csv,
     ingest_companies_from_csv,
+    ingest_companies_by_stock_code,
 )
 from opendart.etl.events import sync_recent_events
 from opendart.etl.financials import backfill_company, get_companies_for_backfill
@@ -93,6 +94,118 @@ def update_delistings_command(csv_path: str) -> None:
         stats = apply_delisting_updates_from_csv(session, csv_path)
 
     _print_stats(stats, heading="Delisting update summary")
+
+
+@cli.command("import-by-stock-code")
+@click.argument("csv_path", type=click.Path(exists=True, dir_okay=False))
+@click.option(
+    "--stock-code-column",
+    default="Stock_code",
+    show_default=True,
+    help="Column name containing stock codes.",
+)
+@click.option(
+    "--name-column",
+    default="Name",
+    show_default=True,
+    help="Column name containing company names.",
+)
+@click.option(
+    "--default-priority/--no-default-priority",
+    default=True,
+    show_default=True,
+    help="Set is_priority flag for imported companies.",
+)
+@click.option(
+    "--backfill/--no-backfill",
+    default=False,
+    show_default=True,
+    help="Run backfill after importing companies.",
+)
+@click.option(
+    "--start-year",
+    default=2015,
+    show_default=True,
+    type=int,
+    help="Start year for backfill (if --backfill is set).",
+)
+@click.option(
+    "--on-error-013",
+    type=click.Choice(["skip", "mark", "stop"], case_sensitive=False),
+    default="mark",
+    show_default=True,
+    help="Action on no-data errors during backfill.",
+)
+def import_by_stock_code_command(
+    csv_path: str,
+    stock_code_column: str,
+    name_column: str,
+    default_priority: bool,
+    backfill: bool,
+    start_year: int,
+    on_error_013: str,
+) -> None:
+    """Import companies from a CSV with stock codes (looks up corp_code from DART).
+
+    This command is useful when you have a list of stock codes (e.g., KOSPI 200)
+    but not the DART corp_codes. It fetches the mapping from DART API.
+
+    Example:
+        opendart import-by-stock-code "KOSPI 200.csv" --backfill
+    """
+    client = DartClient()
+
+    with get_session() as session:
+        stats = ingest_companies_by_stock_code(
+            client,
+            session,
+            csv_path,
+            stock_code_column=stock_code_column,
+            name_column=name_column,
+            default_is_priority=default_priority,
+        )
+
+    _print_stats(stats, heading="Import summary")
+
+    if not backfill:
+        return
+
+    if stats["created"] == 0:
+        click.echo("No new companies to backfill.")
+        return
+
+    click.echo("\nStarting backfill for imported companies...")
+
+    aggregate = {
+        "total_records": 0,
+        "successful": 0,
+        "skipped": 0,
+        "errors": 0,
+    }
+
+    with get_session() as session:
+        companies = list(get_companies_for_backfill(session, priority_only=True))
+
+        for company in companies:
+            click.echo(f"Backfilling {company.corp_code} ({company.corp_name})...")
+            result = backfill_company(
+                client,
+                session,
+                company.corp_code,
+                start_year=start_year,
+                on_error_013=on_error_013.lower(),
+            )
+
+            aggregate["total_records"] += result.get("total_records", 0)
+            aggregate["successful"] += result.get("successful", 0)
+            aggregate["skipped"] += result.get("skipped", 0)
+            aggregate["errors"] += result.get("errors", 0)
+
+            if result.get("rate_limited"):
+                click.echo("Rate limit hit. Stopping backfill.")
+                break
+
+    _print_stats(aggregate, heading="\nBackfill summary")
 
 
 @cli.command("backfill")

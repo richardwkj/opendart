@@ -13,6 +13,11 @@ from sqlalchemy.orm import Session
 
 from opendart.models import Company
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from opendart.api import DartClient
+
 logger = logging.getLogger(__name__)
 
 _DATE_FORMATS = ("%Y-%m-%d", "%Y%m%d")
@@ -184,6 +189,123 @@ def ingest_companies_from_csv(
             stats["errors"] += 1
 
     session.commit()
+    return stats
+
+
+def ingest_companies_by_stock_code(
+    client: "DartClient",
+    session: Session,
+    csv_path: str | Path,
+    stock_code_column: str = "Stock_code",
+    name_column: str = "Name",
+    default_is_priority: bool = True,
+) -> dict[str, int]:
+    """Ingest companies from a CSV that only has stock_code (not corp_code).
+
+    Looks up corp_code from DART API using the stock_code, then ingests.
+
+    Required columns: stock_code column (configurable), name column (configurable)
+
+    Args:
+        client: DartClient instance for API calls
+        session: SQLAlchemy session
+        csv_path: Path to CSV file
+        stock_code_column: Column name for stock codes (default: "Stock_code")
+        name_column: Column name for company names (default: "Name")
+        default_is_priority: Default priority flag for new companies
+
+    Returns:
+        Stats dict with ingestion results
+    """
+    rows = _read_csv_rows(csv_path)
+
+    # Validate headers
+    headers = set(rows[0].keys()) if rows else set()
+    if stock_code_column not in headers:
+        raise ValueError(f"CSV is missing required column: {stock_code_column}")
+
+    stats: dict[str, int] = {
+        "total_rows": len(rows),
+        "created": 0,
+        "skipped_duplicates": 0,
+        "skipped_not_found": 0,
+        "skipped_invalid": 0,
+        "errors": 0,
+    }
+
+    # Fetch all corp_codes from DART and build stock_code -> corp_code mapping
+    logger.info("Fetching company codes from DART API...")
+    all_corps = client.corp_codes()
+
+    if all_corps.empty:
+        logger.error("Failed to fetch company codes from DART API")
+        stats["errors"] = len(rows)
+        return stats
+
+    # Build lookup: stock_code -> (corp_code, corp_name)
+    corp_lookup: dict[str, tuple[str, str]] = {}
+    for _, row in all_corps.iterrows():
+        stock = row.get("stock_code")
+        if stock and str(stock).strip():
+            corp_lookup[str(stock).strip().zfill(6)] = (
+                str(row["corp_code"]).strip(),
+                str(row.get("corp_name", "")).strip(),
+            )
+
+    logger.info(f"Built lookup with {len(corp_lookup)} listed companies")
+
+    seen_corp_codes: set[str] = set()
+
+    for row in rows:
+        try:
+            raw_stock_code = row.get(stock_code_column)
+            csv_name = (row.get(name_column) or "").strip()
+
+            stock_code = _normalize_code(raw_stock_code, 6)
+            if not stock_code:
+                stats["skipped_invalid"] += 1
+                continue
+
+            # Look up corp_code from DART data
+            if stock_code not in corp_lookup:
+                logger.warning(f"Stock code {stock_code} ({csv_name}) not found in DART")
+                stats["skipped_not_found"] += 1
+                continue
+
+            corp_code, dart_name = corp_lookup[stock_code]
+
+            if corp_code in seen_corp_codes:
+                stats["skipped_duplicates"] += 1
+                continue
+
+            seen_corp_codes.add(corp_code)
+
+            # Check if already exists in DB
+            if session.get(Company, corp_code):
+                stats["skipped_duplicates"] += 1
+                continue
+
+            # Use DART name (official) over CSV name
+            company = Company(
+                corp_code=corp_code,
+                stock_code=stock_code,
+                corp_name=(dart_name or csv_name)[:255],
+                is_priority=default_is_priority,
+            )
+            session.add(company)
+            stats["created"] += 1
+            logger.debug(f"Added {corp_code} ({stock_code}): {dart_name}")
+
+        except Exception as exc:
+            logger.exception("Failed to process row %s: %s", row, exc)
+            stats["errors"] += 1
+
+    session.commit()
+    logger.info(
+        f"Ingestion complete: {stats['created']} created, "
+        f"{stats['skipped_not_found']} not found, "
+        f"{stats['skipped_duplicates']} duplicates"
+    )
     return stats
 
 
