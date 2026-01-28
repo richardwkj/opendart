@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -45,6 +46,9 @@ class Company(Base):
         back_populates="company"
     )
     events: Mapped[list["KeyEvent"]] = relationship(back_populates="company")
+    financial_notes: Mapped[list["FinancialNote"]] = relationship(
+        back_populates="company"
+    )
 
     def __repr__(self) -> str:
         return f"<Company {self.corp_code} ({self.stock_code}): {self.corp_name}>"
@@ -108,6 +112,44 @@ class KeyEvent(Base):
 
     def __repr__(self) -> str:
         return f"<KeyEvent {self.rcept_no}: {self.report_nm}>"
+
+
+class FinancialNote(Base):
+    """Detail table for XBRL financial notes (textual disclosures)."""
+
+    __tablename__ = "financial_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    corp_code: Mapped[str] = mapped_column(
+        String(8), ForeignKey("companies.corp_code"), index=True
+    )
+    rcept_no: Mapped[str] = mapped_column(String(14), index=True)
+    year: Mapped[int] = mapped_column(Integer)
+    report_code: Mapped[str] = mapped_column(String(5))
+    concept_id: Mapped[str] = mapped_column(String(255))
+    title: Mapped[str] = mapped_column(String(500))
+    content: Mapped[str] = mapped_column(Text)
+    context_ref: Mapped[str] = mapped_column(String(100))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # Composite unique constraint
+    __table_args__ = (
+        UniqueConstraint(
+            "corp_code",
+            "rcept_no",
+            "concept_id",
+            name="unique_financial_note",
+        ),
+    )
+
+    # Relationship
+    company: Mapped["Company"] = relationship(back_populates="financial_notes")
+
+    def __repr__(self) -> str:
+        return (
+            f"<FinancialNote {self.corp_code} {self.year} {self.report_code}: "
+            f"{self.title[:50]}>"
+        )
 
 
 class BackfillProgress(Base):
