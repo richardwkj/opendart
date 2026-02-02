@@ -8,6 +8,7 @@ from typing import Any
 
 import OpenDartReader
 import pandas as pd
+import requests
 
 from opendart.config import get_settings
 
@@ -21,6 +22,7 @@ class DartErrorCode(Enum):
     EXPIRED_KEY = "011"
     NO_DATA = "013"
     RATE_LIMIT = "020"
+    COMPANY_LIMIT_EXCEEDED = "021"  # Max 100 companies per request
     DATA_NOT_EXIST = "800"
 
 
@@ -259,6 +261,83 @@ class DartClient:
 
         except DartError:
             raise
+        except Exception as e:
+            logger.error(f"Unexpected error in {context}: {e}")
+            raise
+
+    def fnltt_cmpny_indx(
+        self,
+        corp_codes: list[str],
+        bsns_year: int,
+        reprt_code: str,
+        idx_cl_code: str,
+    ) -> pd.DataFrame:
+        """Fetch financial indicators for multiple companies.
+
+        This API fetches key financial indicators (수익성/안정성/성장성/활동성)
+        for up to 100 companies at once. Available from 2023 Q3 onwards.
+
+        Args:
+            corp_codes: List of DART company codes (max 100)
+            bsns_year: Business year (e.g., 2023). Data available from 2023 Q3.
+            reprt_code: Report code (11011=annual, 11013=Q1, 11012=Q2, 11014=Q3)
+            idx_cl_code: Indicator category code:
+                - M210000: 수익성지표 (Profitability)
+                - M220000: 안정성지표 (Stability)
+                - M230000: 성장성지표 (Growth)
+                - M240000: 활동성지표 (Activity)
+
+        Returns:
+            DataFrame with financial indicator data
+
+        Raises:
+            DartError: If API returns an error
+            ValueError: If more than 100 companies provided
+        """
+        if len(corp_codes) > 100:
+            raise ValueError("Maximum 100 companies per request")
+
+        self._wait_for_rate_limit()
+        corp_codes_str = ",".join(corp_codes)
+        context = f"fnltt_cmpny_indx({len(corp_codes)} corps, {bsns_year}, {reprt_code}, {idx_cl_code})"
+
+        try:
+            logger.debug(f"Calling {context}")
+
+            url = "https://opendart.fss.or.kr/api/fnlttCmpnyIndx.json"
+            params = {
+                "crtfc_key": self.api_key,
+                "corp_code": corp_codes_str,
+                "bsns_year": str(bsns_year),
+                "reprt_code": reprt_code,
+                "idx_cl_code": idx_cl_code,
+            }
+
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+
+            data = response.json()
+
+            # Check for API errors
+            status = data.get("status")
+            if status and status != "000":
+                message = data.get("message", "Unknown error")
+                logger.error(f"DART API error in {context}: {status} - {message}")
+                raise DartError(code=status, message=message)
+
+            # Extract list data
+            items = data.get("list", [])
+            if not items:
+                logger.info(f"No data returned for {context}")
+                return pd.DataFrame()
+
+            return pd.DataFrame(items)
+
+        except DartError:
+            raise
+        except requests.RequestException as e:
+            logger.error(f"Request error in {context}: {e}")
+            raise DartError(code="900", message=str(e))
         except Exception as e:
             logger.error(f"Unexpected error in {context}: {e}")
             raise

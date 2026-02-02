@@ -17,6 +17,11 @@ from opendart.etl.companies import (
 )
 from opendart.etl.events import sync_recent_events
 from opendart.etl.financials import backfill_company, get_companies_for_backfill
+from opendart.etl.indicators import (
+    backfill_indicators,
+    backfill_single_company as backfill_single_indicator,
+    EARLIEST_YEAR as INDICATOR_EARLIEST_YEAR,
+)
 from opendart.etl.xbrl import ingest_xbrl
 from opendart.scheduler import monthly_sync_job, run_scheduler
 
@@ -326,6 +331,128 @@ def sync_events_command(days: int) -> None:
         stats = sync_recent_events(client, session, days=days)
 
     _print_stats(stats, heading="Events sync summary")
+
+
+@cli.command("backfill-indicators")
+@click.option("--corp-code", help="Optional corp_code to backfill a single company.")
+@click.option(
+    "--start-year",
+    default=INDICATOR_EARLIEST_YEAR,
+    show_default=True,
+    type=int,
+    help=f"Start year (data available from {INDICATOR_EARLIEST_YEAR} Q3).",
+)
+@click.option(
+    "--priority-only",
+    is_flag=True,
+    help="Only backfill companies marked as priority.",
+)
+@click.option(
+    "--batch-size",
+    default=100,
+    show_default=True,
+    type=int,
+    help="Number of companies per API request (max 100).",
+)
+@click.option(
+    "--on-error-013",
+    type=click.Choice(["skip", "stop"], case_sensitive=False),
+    default="skip",
+    show_default=True,
+    help="Action on no-data errors: skip or stop.",
+)
+@click.option(
+    "--on-rate-limit",
+    type=click.Choice(["pause", "exit", "prompt"], case_sensitive=False),
+    default="prompt",
+    show_default=True,
+    help="Action on rate limit: pause (wait 1hr), exit (stop gracefully), prompt (ask user).",
+)
+def backfill_indicators_command(
+    corp_code: str | None,
+    start_year: int,
+    priority_only: bool,
+    batch_size: int,
+    on_error_013: str,
+    on_rate_limit: str,
+) -> None:
+    """Backfill financial indicators (수익성/안정성/성장성/활동성).
+
+    Fetches key financial indicators from the DART API for multiple companies.
+    Data is available from 2023 Q3 onwards. Supports batch queries of up to
+    100 companies per API request for efficiency.
+
+    Indicator categories fetched:
+      - M210000: 수익성지표 (Profitability)
+      - M220000: 안정성지표 (Stability)
+      - M230000: 성장성지표 (Growth)
+      - M240000: 활동성지표 (Activity)
+
+    Examples:
+        opendart backfill-indicators --priority-only
+        opendart backfill-indicators --corp-code 00126380
+        opendart backfill-indicators --start-year 2024 --batch-size 50
+    """
+    client = DartClient()
+
+    if corp_code:
+        with get_session() as session:
+            stats = backfill_single_indicator(
+                client,
+                session,
+                corp_code,
+                start_year=start_year,
+                on_error_013=on_error_013.lower(),
+            )
+        _print_stats(stats, heading=f"Indicator backfill summary for {corp_code}")
+        return
+
+    with get_session() as session:
+        # Get companies
+        companies = list(get_companies_for_backfill(session, priority_only=priority_only))
+        corp_codes = [c.corp_code for c in companies]
+
+        if not corp_codes:
+            click.echo("No companies found to backfill.")
+            return
+
+        click.echo(f"Backfilling indicators for {len(corp_codes)} companies...")
+
+        while True:
+            stats = backfill_indicators(
+                client,
+                session,
+                corp_codes=corp_codes,
+                start_year=start_year,
+                on_error_013=on_error_013.lower(),
+                batch_size=batch_size,
+            )
+
+            if stats.get("rate_limited"):
+                action = on_rate_limit.lower()
+
+                if action == "prompt":
+                    click.echo("\nRate limit hit (Error 020).")
+                    action = click.prompt(
+                        "Choose action",
+                        type=click.Choice(["pause", "exit"], case_sensitive=False),
+                        default="exit",
+                    )
+
+                if action == "pause":
+                    click.echo("Pausing for 1 hour before resuming...")
+                    logger.info("Rate limit hit; pausing for 1 hour")
+                    time.sleep(3600)  # 1 hour
+                    click.echo("Resuming backfill...")
+                    continue
+                else:
+                    click.echo("Exiting gracefully. Progress has been saved.")
+                    logger.info("Rate limit hit; exiting. Progress saved.")
+                    break
+            else:
+                break
+
+    _print_stats(stats, heading="Indicator backfill summary")
 
 
 @cli.command("ingest-xbrl")
