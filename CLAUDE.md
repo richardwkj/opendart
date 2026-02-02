@@ -31,6 +31,7 @@ src/opendart/
     ├── __init__.py
     ├── companies.py  # Company CSV ingestion/delisting
     ├── financials.py # Financial data ETL + backfill
+    ├── indicators.py # Financial indicators ETL (수익성/안정성/성장성/활동성)
     └── events.py     # Key events ETL
 ```
 
@@ -51,6 +52,13 @@ Run with `uv run opendart <command>` or `python -m opendart.cli <command>`:
   - `--on-rate-limit=pause|exit|prompt` - Handle rate limits (pause waits 1hr)
 - `sync-events` - Sync key events from past N days
   - `--days` - Lookback period (default 31)
+- `backfill-indicators` - Backfill financial indicators (수익성/안정성/성장성/활동성)
+  - `--corp-code` - Single company
+  - `--start-year` - Default 2023 (data available from 2023 Q3)
+  - `--priority-only` - Only priority companies
+  - `--batch-size` - Companies per API request (max 100, default 100)
+  - `--on-error-013=skip|stop` - Handle no-data errors
+  - `--on-rate-limit=pause|exit|prompt` - Handle rate limits
 - `run-scheduler` - Start APScheduler for automated monthly syncs (1st of month at 02:00 KST)
 - `run-sync` - Manually trigger monthly sync job
 
@@ -64,19 +72,24 @@ Run with `uv run opendart <command>` or `python -m opendart.cli <command>`:
 
 ## Database Schema
 
-Four tables with `corp_code` as the linking key:
+Tables with `corp_code` as the linking key:
 - `companies` (master) - company identifiers, listing/delisting dates, priority flag, earliest_data_year
 - `financial_fundamentals` (detail) - financial statement line items with versioning for restatements
+- `financial_indicators` (detail) - key financial indicators (수익성/안정성/성장성/활동성), data from 2023 Q3+
 - `key_events` (detail) - disclosures keyed by `rcept_no`
-- `backfill_progress` - checkpoint table for resumable backfill
+- `financial_notes` (detail) - XBRL text blocks
+- `backfill_progress` - checkpoint table for resumable financial backfill
+- `indicator_backfill_progress` - checkpoint table for resumable indicator backfill
 
 View: `latest_financials` - shows only the most recent version of each financial entry.
 
 ## Alembic Migrations
 
 Migrations in `alembic/versions/`:
-- `001_initial_schema.py` - all tables
+- `001_initial_schema.py` - initial tables
 - `002_latest_financials_view.py` - Latest_Financials view
+- `1af33ea2791c_create_financial_notes.py` - Financial notes table
+- `003_financial_indicators.py` - Financial indicators and progress tables
 
 Run migrations: `uv run alembic upgrade head`
 
@@ -84,8 +97,10 @@ Run migrations: `uv run alembic upgrade head`
 
 - **Daily limit**: 20,000 requests
 - **Throttling**: 0.15s delay between requests
-- **Data availability**: `finstate_all()` available from 2015 Q1 onwards
-- **Error codes**: 010 (unregistered key), 011 (expired), 013 (no data), 020 (rate limit), 800 (data doesn't exist)
+- **Data availability**:
+  - `finstate_all()` available from 2015 Q1 onwards
+  - `fnlttCmpnyIndx` (financial indicators) available from 2023 Q3 onwards, batch up to 100 companies
+- **Error codes**: 010 (unregistered key), 011 (expired), 013 (no data), 020 (rate limit), 021 (company limit exceeded), 800 (data doesn't exist)
 
 ## Configuration
 

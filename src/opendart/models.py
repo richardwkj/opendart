@@ -49,6 +49,9 @@ class Company(Base):
     financial_notes: Mapped[list["FinancialNote"]] = relationship(
         back_populates="company"
     )
+    indicators: Mapped[list["FinancialIndicator"]] = relationship(
+        back_populates="company"
+    )
 
     def __repr__(self) -> str:
         return f"<Company {self.corp_code} ({self.stock_code}): {self.corp_name}>"
@@ -168,5 +171,68 @@ class BackfillProgress(Base):
     __table_args__ = (
         UniqueConstraint(
             "corp_code", "year", "report_code", name="unique_backfill_progress"
+        ),
+    )
+
+
+class FinancialIndicator(Base):
+    """Detail table for company financial indicators (수익성/안정성/성장성/활동성)."""
+
+    __tablename__ = "financial_indicators"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    corp_code: Mapped[str] = mapped_column(
+        String(8), ForeignKey("companies.corp_code"), index=True
+    )
+    stock_code: Mapped[Optional[str]] = mapped_column(String(6), nullable=True)
+    year: Mapped[int] = mapped_column(Integer)
+    report_code: Mapped[str] = mapped_column(String(5))
+    settlement_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    idx_cl_code: Mapped[str] = mapped_column(String(7))  # M210000, M220000, etc.
+    idx_cl_name: Mapped[str] = mapped_column(String(50))  # 수익성지표, 안정성지표, etc.
+    idx_code: Mapped[str] = mapped_column(String(10))  # M211000, etc.
+    idx_name: Mapped[str] = mapped_column(String(100))  # 영업이익률, etc.
+    idx_value: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # Stored as string for precision
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # Composite unique constraint
+    __table_args__ = (
+        UniqueConstraint(
+            "corp_code",
+            "year",
+            "report_code",
+            "idx_code",
+            name="unique_financial_indicator",
+        ),
+    )
+
+    # Relationship
+    company: Mapped["Company"] = relationship(back_populates="indicators")
+
+    def __repr__(self) -> str:
+        return (
+            f"<FinancialIndicator {self.corp_code} {self.year} {self.report_code}: "
+            f"{self.idx_name}={self.idx_value}>"
+        )
+
+
+class IndicatorBackfillProgress(Base):
+    """Track indicator backfill progress for resumption."""
+
+    __tablename__ = "indicator_backfill_progress"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    corp_code: Mapped[str] = mapped_column(String(8), index=True)
+    year: Mapped[int] = mapped_column(Integer)
+    report_code: Mapped[str] = mapped_column(String(5))
+    idx_cl_code: Mapped[str] = mapped_column(String(7))  # Indicator category
+    status: Mapped[str] = mapped_column(String(20))  # 'completed', 'failed', 'skipped'
+    error_message: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    processed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "corp_code", "year", "report_code", "idx_cl_code",
+            name="unique_indicator_backfill_progress"
         ),
     )
